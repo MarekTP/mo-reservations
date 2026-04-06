@@ -1,0 +1,134 @@
+.mores-form{border:1px solid #ddd;border-radius:8px}
+.mores-form label{display:block;margin-top:.75rem}
+.mores-form input,.mores-form select{width:100%;padding:.5rem}
+.mores-form button{margin-top:1rem}
+.mores-result{margin-top:1rem;font-weight:bold}
+
+.mores-week-nav{display:flex;align-items:center;gap:.5rem;margin:.5rem 0}
+.mores-grid{width:100%;border-collapse:separate;border-spacing:2px;font-size:.95rem}
+.mores-grid th{position:sticky;top:0;background:#f7f7f7;}
+.mores-grid td,.mores-grid th{padding:.4rem .5rem;border:1px solid #ddd;text-align:center;min-width:80px}
+.mores-cell.free{background:#e8f7ee;cursor:pointer}
+.mores-cell.free:hover{outline:2px solid #0a0}
+.mores-cell.busy{background:#fde8e7}
+.mores-cell.closed{background:#f1f1f1;color:#bbb}
+.mores-grid-loading{padding:.5rem;font-style:italic}
+.mores-picked{margin-bottom:.5rem;font-weight:600}
+
+
+.mores-inline .mores-top{margin-bottom:.5rem}
+.mores-details{margin-top:.75rem}
+.mores-form label{margin-top:.5rem}
+.mores-week-prev[disabled]{opacity:.4;cursor:not-allowed}
+
+.mores-row.past-day th,
+tr.past-day > th { color:#999; background:#f6f6f6; }
+.mores-cell.past { cursor:not-allowed; }
+
+/* .mores-grid-wrap{ overflow:auto; max-width:100%; } */
+.mores-grid-wrap{
+  overflow-x:auto;
+  max-width:100%;
+  /* Výrazný scrollbar */
+  scrollbar-width:auto;
+  scrollbar-color:#aaa #eee;
+}
+
+.mores-grid-wrap::-webkit-scrollbar       { height:12px; }
+.mores-grid-wrap::-webkit-scrollbar-track  { background:#eee; border-radius:6px; }
+.mores-grid-wrap::-webkit-scrollbar-thumb  { background:#aaa; border-radius:6px; min-width:40px; }
+.mores-grid-wrap::-webkit-scrollbar-thumb:hover { background:#888; }
+.mores-grid{ min-width: 860px; }
+
+.mores-grid th:first-child{ position:sticky; left:0; background:#f7f7f7; z-index:1 }
+
+/* jasné odlišení stavu */
+.mores-cell.past,.mores-cell.past-busy,.mores-cell.past-free{background:#f3f3f3;color:#999; cursor:not-allowed}
+.mores-cell.free  { background:#e8f7ee; cursor:pointer; }
+.mores-cell.busy  { background:#fde8e7; cursor:not-allowed; }
+.mores-cell.selected { outline:2px solid #06c; box-shadow: inset 0 0 0 2px #06c; }
+
+/* legenda vpravo v liště */
+.mores-legend { margin-left:auto; display:flex; gap:12px; align-items:center; font-size:.9rem; clear: both; }
+.mores-legend .legend-free,
+.mores-legend .legend-busy,
+.mores-legend .legend-sel { display:inline-block; width:12px; height:12px; border:1px solid #999; vertical-align:middle; }
+.mores-legend .legend-free { background:#e8f7ee }
+.mores-legend .legend-busy { background:#fde8e7 }
+.mores-legend .legend-sel  { background:#cfe3ff; border-color:#06c }
+
+/* ===== MOBILE: karty místo tabulky ===== */
+@media (max-width: 600px) {
+
+  .mores-grid {
+    display:block;
+    min-width:0;
+    table-layout:auto;
+  }
+  .mores-grid thead { display:none; }
+  .mores-grid tbody { display:block; }
+
+  .mores-grid tr {
+    display:block;
+    margin-bottom:.5rem;
+    border:1px solid #ddd;
+    border-radius:6px;
+    padding:.4rem;
+    background:#fff;
+  }
+
+  /* Den jako nadpis karty */
+  .mores-grid tr > th:first-child {
+    display:block;
+    position:static;
+    text-align:left;
+    font-size:.95rem;
+    padding:.2rem .3rem .3rem;
+    border:none;
+    background:transparent;
+  }
+
+  /* Hodinové buňky jako inline štítky */
+  .mores-grid td.mores-cell {
+    display:inline-block;
+    min-width:0;
+    width:auto;
+    padding:.35rem .5rem;
+    margin:2px;
+    border-radius:4px;
+    font-size:.8rem;
+    border:1px solid #ccc;
+    vertical-align:top;
+    text-align:center;
+  }
+
+  /* Přidej čas do buňky přes ::before */
+  .mores-grid td.mores-cell::before {
+    content: attr(data-time);
+    display:block;
+    font-weight:600;
+    font-size:.8rem;
+  }
+
+  /* Partial buňky – label pod časem */
+  .mores-cell.partial .mores-cell-label {
+    display:block;
+    font-size:.65rem;
+    margin-top:1px;
+  }
+
+  /* Legenda na mobilu */
+  .mores-legend {
+    flex-wrap:wrap;
+    gap:8px;
+    font-size:.8rem;
+    justify-content:center;
+    margin-left:0;
+  }
+
+  /* Navigace týdnů */
+  .mores-week-nav {
+    font-size:.9rem;
+    justify-content:center;
+  }
+}
