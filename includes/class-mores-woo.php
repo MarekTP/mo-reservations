@@ -44,6 +44,7 @@ class MORES_Woo {
 		//cancel order
 		add_action('woocommerce_email_after_order_table', [__CLASS__, 'email_cancel_link'], 10, 4);
 		add_action('template_redirect', [__CLASS__, 'maybe_handle_public_cancel']);
+		add_action('template_redirect', [__CLASS__, 'maybe_serve_booking_ics']);
 
 		add_action('woocommerce_order_status_cancelled', [__CLASS__, 'release_booking_for_order']);
 		add_action('woocommerce_order_status_refunded',  [__CLASS__, 'release_booking_for_order']);
@@ -287,7 +288,7 @@ class MORES_Woo {
         $order = wc_get_order($order_id);
         if (!$order) return;
         foreach ($order->get_items() as $item) {
-            $booking_id = intval( $item->get_meta('mores_booking_id') );
+            $booking_id = intval( $item->get_meta('_mores_booking_id', true) );
             if ($booking_id) {
                 if ($confirm) {
                     MORES_Availability::confirm_booking($booking_id, $order_id);
@@ -596,6 +597,15 @@ class MORES_Woo {
 			} else {
 				echo '<p><a href="'.esc_url($url).'">'.esc_html__( 'Zrušit rezervaci', 'mo-reservations' ).'</a></p>';
 			}
+			$ics_url = add_query_arg([
+				'mores_ics_booking' => (int)$bid,
+				'mores_token'       => rawurlencode($row->token),
+			], home_url('/'));
+			if ( $plain_text ) {
+				echo "\n" . __( 'Stáhnout kalendářní pozvánku (.ics):', 'mo-reservations' ) . ' ' . $ics_url . "\n";
+			} else {
+				echo '<p><a href="'.esc_url($ics_url).'">'.esc_html__( 'Stáhnout kalendářní pozvánku (.ics)', 'mo-reservations' ).'</a></p>';
+			}
 			break; // stačí jeden odkaz
 		}
 	}
@@ -672,6 +682,22 @@ class MORES_Woo {
 			}
 		}
 	}
+	
+	public static function maybe_serve_booking_ics() {
+        if ( empty($_GET['mores_ics_booking']) || empty($_GET['mores_token']) ) return;
+        $bid   = intval($_GET['mores_ics_booking']);
+        $token = sanitize_text_field(wp_unslash($_GET['mores_token']));
+        global $wpdb;
+        $tbl = $wpdb->prefix.'mores_bookings';
+        $row = $wpdb->get_row($wpdb->prepare("SELECT id FROM $tbl WHERE id=%d AND token=%s", $bid, $token));
+        if (!$row) { wp_die('Neplatný odkaz.'); }
+        $ics = MORES_ICS::generate_booking_ics($bid);
+        header('Content-Type: text/calendar; charset=utf-8');
+        header('Content-Disposition: attachment; filename="rezervace-'.$bid.'.ics"');
+        header('Cache-Control: no-cache');
+        echo $ics;
+        exit;
+    }
 
 
 }

@@ -38,7 +38,6 @@ class MORES_Plugin {
         foreach ($rows as $r) {
             echo '<tr>';
             echo '<td>'.esc_html($r->id).'</td>';
-            echo '<td>'.esc_html($r->calendar_id).'</td>';
             echo '<td>'.esc_html($r->service_id).'</td>';
             echo '<td>'.esc_html($r->start_utc).'</td>';
             echo '<td>'.esc_html($r->end_utc).'</td>';
@@ -409,7 +408,8 @@ class MORES_Plugin {
                 echo '<td>'.esc_html($r->level).'</td>';
                 echo '<td>'.esc_html($r->context).'</td>';
                 echo '<td>'.esc_html($r->message).'</td>';
-                $data = maybe_unserialize($r->data);
+                $raw  = isset($r->data) ? $r->data : (isset($r->context) ? $r->context : '');
+                $data = maybe_unserialize($raw);
                 echo '<td><pre style="white-space:pre-wrap">'.esc_html(is_array($data)||is_object($data)? print_r($data,true) : (string)$data).'</pre></td>';
                 echo '</tr>';
             }
@@ -619,6 +619,7 @@ class MORES_Plugin {
 				<span class="legend-free"></span> volné
 				<span class="legend-partial"></span> částečně
 				<span class="legend-busy"></span> obsazené
+				<span class="legend-holiday"></span> svátek/výluka
 				<span class="legend-sel"></span> vybráno
 			</div>
 
@@ -685,11 +686,13 @@ class MORES_Plugin {
             if (!$calendar_id || !$service_id || !$week_start) {
                 MORES_Logger::add('warn','ajax_get_week','missing params', ['cal'=>$calendar_id,'srv'=>$service_id,'week'=>$week_start]);
                 wp_send_json_error(['message'=>'Neúplný požadavek.']);
+                return;
             }
             MORES_Logger::add('info','ajax_get_week','request',['cal'=>$calendar_id,'srv'=>$service_id,'week'=>$week_start]);
             if (!method_exists('MORES_Availability','compute_week_grid')) {
                 MORES_Logger::add('error','ajax_get_week','compute_week_grid missing');
                 wp_send_json_success(['grid'=>['openHour'=>8,'closeHour'=>18,'days'=>[]]]);
+                return;
             }
             $grid = MORES_Availability::compute_week_grid($calendar_id, $service_id, $week_start);
             MORES_Logger::add('info','ajax_get_week','ok', ['days'=> isset($grid['days']) ? count($grid['days']) : 0 ]);

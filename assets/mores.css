@@ -132,3 +132,29 @@ tr.past-day > th { color:#999; background:#f6f6f6; }
     justify-content:center;
   }
 }
+
+.mores-cell.holiday {
+    background: #f0e6ff;
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+tr.holiday-day > th {
+    color: #888;
+    font-style: italic;
+}
+.mores-legend .legend-holiday {
+    background: #f0e6ff;
+    border-color: #999;
+}
+
+.mores-cell.partial {
+    background: repeating-linear-gradient(
+        45deg,
+        #fde8e7,
+        #fde8e7 4px,
+        #fff8e1 4px,
+        #fff8e1 8px
+    );
+    cursor: not-allowed;
+}
+.mores-legend .legend-partial { background: #fff8e1; border-color: #e6a817; }

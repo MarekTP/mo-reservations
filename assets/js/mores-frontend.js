@@ -43,12 +43,16 @@ function renderGrid(form, grid){
   var closeH = grid.closeHour || 18;
 
   // head
+  var stepMin = grid.step || 60;
+
+  // head - sloupce dle granularity
   var thead = document.createElement('thead');
   var hr = document.createElement('tr');
   var th0 = document.createElement('th'); th0.textContent = 'Den / hod.'; hr.appendChild(th0);
-  for (var h=openH; h<closeH; h++){
+  for (var m = openH * 60; m < closeH * 60; m += stepMin) {
     var th = document.createElement('th');
-    th.textContent = (h<10?'0':'')+h+':00';
+    var hh = Math.floor(m / 60), mm = m % 60;
+    th.textContent = (hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;
     hr.appendChild(th);
   }
   thead.appendChild(hr);
@@ -58,45 +62,58 @@ function renderGrid(form, grid){
 
   (grid.days || []).forEach(function(day){
       var dd = new Date(day.date + 'T00:00:00');
-      var dow = dd.getDay();            // 0=Ne, 6=So
-      if (hideW && (dow === 0 || dow === 6)) return;  // skrýt víkendy
+      var dow = dd.getDay();
+      if (hideW && (dow === 0 || dow === 6)) return;
 
       var tr = document.createElement('tr');
-
-      // hlavička dne
       var tdDay = document.createElement('th');
       var dname = ['Ne','Po','Út','St','Čt','Pá','So'][dow];
       tdDay.textContent = dname + ' ' + dd.getDate()+'.'+(dd.getMonth()+1)+'.';
+
+      var isHoliday = !!day.holiday;
+      if (isHoliday) { tr.classList.add('holiday-day'); tdDay.title = 'Svátek / výluka'; }
       tr.appendChild(tdDay);
 
-      // minulý den?
       var isPastDay = (dd < today);
       if (isPastDay) tr.classList.add('past-day');
 
-      var busySet = new Set((day.busy || []).map(function(t){ return t; }));
+      var busySet    = new Set((day.busy    || []).map(function(t){ return t; }));
+      var partialSet = new Set((day.partial || []).map(function(t){ return t; }));
 
-      for (var h=openH; h<closeH; h++){
-        var key = (h<10?'0':'')+h+':00';
-        var isBusy = busySet.has(key);
+      var nowHour = (new Date()).getHours();
+      var nowMin  = (new Date()).getMinutes();
 
-        // minulá hodina (dnešek) nebo celý minulý den → neklikatelná „past“
-        var isPastCell = isPastDay || (dd.getTime() === today.getTime() && h <= nowHour);
+      for (var m = openH * 60; m < closeH * 60; m += stepMin) {
+        var hh = Math.floor(m / 60), mm = m % 60;
+        var key = (hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;
+        var isBusy    = busySet.has(key);
+        var isPartial = partialSet.has(key);
+        var isPastCell = isPastDay || (dd.getTime() === today.getTime() && (hh < nowHour || (hh === nowHour && mm <= nowMin)));
 
         var td = document.createElement('td');
         td.dataset.time = key;
-        td.className = 'mores-cell ' + (isBusy ? 'busy' : (isPastCell ? 'past' : 'free'));
-        td.title = isBusy ? 'Obsazeno' : (isPastCell ? 'Minulý čas' : 'Volné');
 
-        // klik povol jen na skutečně volné a budoucí
-        if (!isBusy && !isPastCell){
+        if (isHoliday) {
+          td.className = 'mores-cell holiday';
+          td.title = 'Svátek / výluka';
+        } else if (isBusy) {
+          td.className = 'mores-cell busy';
+          td.title = 'Obsazeno';
+        } else if (isPastCell) {
+          td.className = 'mores-cell past';
+          td.title = 'Minulý čas';
+        } else if (isPartial) {
+          td.className = 'mores-cell partial';
+          td.title = 'Částečně obsazeno (příprava)';
+        } else {
+          td.className = 'mores-cell free';
+          td.title = 'Volné';
           (function(dateStr, timeStr, cell){
             cell.addEventListener('click', function(){
               qsa(form, '.mores-grid .mores-cell.selected').forEach(function(x){ x.classList.remove('selected'); });
               cell.classList.add('selected');
-
               form.querySelector('input[name="date"]').value = dateStr;
               form.querySelector('input[name="time"]').value = timeStr;
-
               var opt = form.querySelector('select[name="service_id"] option:checked');
               var sName = opt ? opt.textContent : '';
               var cash = opt ? opt.getAttribute('data-price-cash') : '';

@@ -44,6 +44,7 @@ class MORES_Email {
 
         add_filter('wp_mail_content_type', function($ct){ return 'text/html; charset=UTF-8'; });
         $sent = wp_mail($to, $subject, $body, $headers, [$ics_path]);
+        @unlink($ics_path);
         remove_filter('wp_mail_content_type', '__return_false');
 
         return $sent;

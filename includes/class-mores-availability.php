@@ -177,7 +177,8 @@ class MORES_Availability {
         list($ch,$cm) = array_map('intval', explode(':', $close_time) + [0,0]);
 
         // UI sloupce po hodinách
-        $step_ui = 60;
+        $gran = isset($cal->granularity) ? max(15, (int)$cal->granularity) : 60;
+        $step_ui = $gran;
 
         // další parametry
         $buffer      = isset($cal->buffer_after_minutes) ? (int)$cal->buffer_after_minutes : 0;
@@ -269,9 +270,9 @@ class MORES_Availability {
 
                 $dayBookings[] = [$bs, $be];
             }
-
-            // vygeneruj hodinové starty
-            $busy = [];
+			// vygeneruj hodinové starty
+            $busy    = [];
+            $partial = [];
             $isOpenDay = in_array($weekdayN, $days_open, true);
 
             $t = $mkDT($dateStr, $oh, 0);
@@ -280,27 +281,45 @@ class MORES_Availability {
             while ($t < $tEnd) {
                 $cellKey   = $t->format('H:i');
                 $candStart = clone $t;
-                $candEnd   = (clone $candStart)->modify('+'.($duration + $buffer).' minute');
+                $candEnd   = (clone $candStart)->modify('+'.($duration).' minute');
+                // konec včetně bufferu pro účely blokování
+                $candEndBuf = (clone $candStart)->modify('+'.($duration + $buffer).' minute');
 
-                $block = false;
+                $block   = false;
+                $blocked_partial = false;
 
                 if (!$isOpenDay) { $block = true; }
-                if (!$block && ($candStart < $open || $candEnd > $close)) { $block = true; }
-                if (!$block && $breakA && $breakB && $overlap($candStart, $candEnd, $breakA, $breakB)) { $block = true; }
+                if (!$block && ($candStart < $open || $candEndBuf > $close)) { $block = true; }
+                if (!$block && $breakA && $breakB && $overlap($candStart, $candEndBuf, $breakA, $breakB)) { $block = true; }
                 if (!$block && $dayBookings) {
                     foreach ($dayBookings as list($bs,$be)) {
-                        if ($overlap($candStart, $candEnd, $bs, $be)) { $block = true; break; }
+                        if ($overlap($candStart, $candEndBuf, $bs, $be)) {
+                            // plné zablokování pokud zasahuje do samotné rezervace (bez bufferu)
+                            $candEndNoBuf = (clone $candStart)->modify('+'.($duration).' minute');
+                            if ($overlap($candStart, $candEndNoBuf, $bs, $be)) {
+                                $block = true;
+                            } else {
+                                $blocked_partial = true; // zasahuje jen do bufferu
+                            }
+                            break;
+                        }
                     }
                 }
 
-                if ($block) $busy[] = $cellKey;
+                if ($block) {
+                    $busy[] = $cellKey;
+                } elseif ($blocked_partial) {
+                    $partial[] = $cellKey;
+                }
 
                 $t->modify('+'.$step_ui.' minute');
             }
-
+			$isHoliday = self::is_blackout_day($calendar_id, $dateStr);
             $days[] = [
-                'date' => $dateStr,
-                'busy' => $busy,
+                'date'    => $dateStr,
+                'busy'    => $isHoliday ? [] : $busy,
+                'partial' => $isHoliday ? [] : $partial,
+                'holiday' => $isHoliday,
             ];
         }
 
@@ -362,6 +381,9 @@ class MORES_Availability {
         $end_utc = (clone $end_local); $end_utc->setTimezone(new DateTimeZone('UTC'));
 
         $bookings = self::list_bookings_for_day($calendar_id, $start_local->format('Y-m-d'));
+        if ( self::is_blackout_day($calendar_id, $start_local->format('Y-m-d')) ) {
+            return ['ok' => false, 'message' => 'Vybraný den je svátek nebo výluka.'];
+        }
         foreach ($bookings as $b) {
             $b_start = new DateTime($b->start_utc, new DateTimeZone('UTC'));
             $b_end   = new DateTime($b->end_utc,   new DateTimeZone('UTC'));
@@ -447,7 +469,14 @@ class MORES_Availability {
     public static function cancel_booking($booking_id) {
         global $wpdb;
         $tbl = $wpdb->prefix . 'mores_bookings';
-        $wpdb->delete($tbl, ['id' => (int)$booking_id], ['%d']);
+        // Hold záznamy smaž (uvolní termín), confirmed jen přepiš na cancelled
+        $row = $wpdb->get_row($wpdb->prepare("SELECT status FROM $tbl WHERE id=%d", (int)$booking_id));
+        if (!$row) return;
+        if ($row->status === 'hold') {
+            $wpdb->delete($tbl, ['id' => (int)$booking_id], ['%d']);
+        } else {
+            $wpdb->update($tbl, ['status' => 'cancelled'], ['id' => (int)$booking_id]);
+        }
     }
     
     public static function cleanup_expired_holds() {
