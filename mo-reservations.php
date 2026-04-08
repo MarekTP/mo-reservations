@@ -13,6 +13,18 @@ define('MORES_VER', '0.4.19');
 define('MORES_PATH', plugin_dir_path(__FILE__));
 define('MORES_URL', plugin_dir_url(__FILE__));
 
+require_once plugin_dir_path(__FILE__) . 'vendor/autoload.php';
+
+use YahnisElsts\PluginUpdateChecker\v5\PucFactory;
+
+$updateChecker = PucFactory::buildUpdateChecker(
+    'https://github.com/MarekTP/mo-reservations',
+    __FILE__,
+    'mo-reservations'
+);
+
+$updateChecker->getVcsApi()->enableReleaseAssets();
+
 require_once MORES_PATH . 'includes/class-mores-db.php';
 require_once MORES_PATH . 'includes/class-mores-woo.php';
 require_once MORES_PATH . 'includes/class-mores-plugin.php';
@@ -24,6 +36,8 @@ require_once MORES_PATH . 'includes/helpers.php';
 
 register_activation_hook(__FILE__, ['MORES_DB', 'activate']);
 register_uninstall_hook(__FILE__, 'mores_uninstall');
+
+
 
 function mores_uninstall() {
     // Odstranění tabulek dle nastavení
