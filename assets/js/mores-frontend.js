@@ -1,13 +1,14 @@
 (function(){
 function qs(el, sel){ return el.querySelector(sel); }
 function qsa(el, sel){ return Array.from(el.querySelectorAll(sel)); }
-function fmtDate(d){ return d.toISOString().slice(0,10); }
 function addDays(d, n){ var x=new Date(d); x.setDate(x.getDate()+n); return x; }
 
 function mondayOf(date){
   var d = new Date(date);
-  var day = d.getDay();            // 0=Ne .. 6=So
-  var diff = (day + 6) % 7;        // kolik dní zpět na pondělí
+  var startDow = (typeof moresAjax !== 'undefined' && moresAjax.startOfWeek !== undefined)
+                  ? parseInt(moresAjax.startOfWeek, 10) : 1;
+  var day = d.getDay();
+  var diff = (day - startDow + 7) % 7;
   d.setDate(d.getDate() - diff);
   d.setHours(0,0,0,0);
   return d;
@@ -137,30 +138,6 @@ function renderGrid(form, grid){
   table.appendChild(tbody);
 }
 
-/*
-function ensureForwardOnly(form){
-  var lbl = qs(form, '.mores-week-label');
-  var ws = new Date(lbl.dataset.weekStart + 'T00:00:00');
-  var today = new Date(); var monday = mondayOf(today);
-  var prevBtn = qs(form, '.mores-week-prev');
-  if (ws <= monday) { prevBtn.disabled = true; } else { prevBtn.disabled = false; }
-}
-*/
-
-function ensureForwardOnly(form){
-  var prevBtn = form.querySelector('.mores-week-prev');
-  if (!prevBtn) return;
-
-  var lbl = form.querySelector('.mores-week-label');
-  var base = (lbl && lbl.dataset.weekStart) ? lbl.dataset.weekStart
-            : (form.dataset.weekStart || '');
-  if (!base) { prevBtn.disabled = true; return; }
-
-  var ws = mondayOf(new Date(base + 'T00:00:00'));
-  var nowMon = mondayOf(new Date());
-  prevBtn.disabled = (ws <= nowMon);
-}
-
 function ensureForwardOnly(form){
   var lbl = qs(form, '.mores-week-label');
   var prevBtn = qs(form, '.mores-week-prev');
@@ -189,10 +166,9 @@ function loadWeek(form){
   data.append('service_id', srv);
   data.append('week_start', week_start);
   
-  var loader = form.querySelector('.mores-grid-loading');
-  if (loader) loader.style.display = ''; // zobraz
   var wrap = form.querySelector('.mores-grid-wrap');
-  if (wrap) wrap.innerHTML = ''; // volitelně vyčisti grid při novém načítání
+  if (wrap) wrap.innerHTML = '<div class="mores-grid-loading">Načítám dostupnost\u2026</div>';
+  var loader = wrap ? wrap.querySelector('.mores-grid-loading') : null;
 
   fetch(moresAjax.ajaxurl, { method:'POST', credentials:'same-origin', body:data })
     .then(function(r){ return r.json(); })
@@ -352,11 +328,5 @@ document.addEventListener('change', function(e) {
         });
     }
 })();
-
-if (typeof jQuery !== 'undefined') {
-    jQuery(document.body).on('payment_method_selected', function() {
-        jQuery('body').trigger('update_checkout');
-    });
-}
 
 })();

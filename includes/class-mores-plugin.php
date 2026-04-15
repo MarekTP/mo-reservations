@@ -2,19 +2,14 @@
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 class MORES_Plugin {
-    public static function log($level, $message, $context = []){
-        global $wpdb; $tbl = $wpdb->prefix.'mores_logs';
-        $ctx = is_array($context) ? maybe_serialize($context) : (string)$context;
-        $wpdb->insert($tbl, ['level'=>substr($level,0,16),'message'=>$message,'context'=>$ctx]);
-    }
 
     public function __construct() {
         add_action('admin_menu', [$this, 'admin_menu']);
         add_action('init', [$this, 'register_block']);
         add_shortcode('mo_reservation', [$this, 'render_shortcode']);
         add_action('wp_enqueue_scripts', [$this, 'enqueue_assets']);
-        add_action('wp_ajax_mores_get_slots', [$this, 'ajax_get_slots']);
-        add_action('wp_ajax_nopriv_mores_get_slots', [$this, 'ajax_get_slots']);
+        //add_action('wp_ajax_mores_get_slots', [$this, 'ajax_get_slots']);
+        //add_action('wp_ajax_nopriv_mores_get_slots', [$this, 'ajax_get_slots']);
         add_action('wp_ajax_mores_make_booking', [$this, 'ajax_make_booking']);
         add_action('wp_ajax_nopriv_mores_make_booking', [$this, 'ajax_make_booking']);
         add_action('wp_ajax_mores_get_week', [$this, 'ajax_get_week']);
@@ -38,6 +33,7 @@ class MORES_Plugin {
         foreach ($rows as $r) {
             echo '<tr>';
             echo '<td>'.esc_html($r->id).'</td>';
+            echo '<td>'.esc_html($r->calendar_id).'</td>';
             echo '<td>'.esc_html($r->service_id).'</td>';
             echo '<td>'.esc_html($r->start_utc).'</td>';
             echo '<td>'.esc_html($r->end_utc).'</td>';
@@ -152,11 +148,7 @@ class MORES_Plugin {
                 wp_nonce_field('mores_cal_update');
                 echo '<input type="hidden" name="id" value="'.intval($row->id).'">';
                 echo '<table class="form-table">';
-        echo '<tr><th>Přesměrování po výběru termínu</th><td><select name="redirect_after_add">'.
-             '<option value="checkout"'.selected($redirect_after_add,'checkout',false).'>Pokladna</option>'.
-             '<option value="cart"'.selected($redirect_after_add,'cart',false).'>Košík</option>'.
-             '</select></td></tr>';
-        echo '<tr><th>Zobrazit jen pracovní dny</th><td><label><input type="checkbox" name="weekdays_only" '.checked(1,$weekdays_only,false).'> Po–Pá (skrýt víkend)</label></td></tr>';
+                echo '<tr><th>Zobrazit jen pracovní dny</th><td><label><input type="checkbox" name="weekdays_only" '.checked(1,$weekdays_only,false).'> Po–Pá (skrýt víkend)</label></td></tr>';
                 echo '<tr><th>Název</th><td><input name="name" class="regular-text" required value="'.esc_attr($row->name).'"></td></tr>';
                 echo '<tr><th>Otevírací doba</th><td><input name="open_time" value="'.esc_attr($row->open_time).'" size="6"> – <input name="close_time" value="'.esc_attr($row->close_time).'" size="6"></td></tr>';
                 echo '<tr><th>Granularita</th><td><input name="granularity" value="'.esc_attr($row->granularity).'" size="4"> min</td></tr>';
@@ -229,7 +221,7 @@ class MORES_Plugin {
                 $wpdb->insert($srv, ['calendar_id'=>$cal_id,'name'=>$name,'duration_minutes'=>$dur,'enabled'=>1, 'price_now'=>floatval($_POST['price_now'] ?? 0), 'price_cash'=>floatval($_POST['price_cash'] ?? 0)]);
                 echo '<div class="updated"><p>Služba uložena.</p></div>';
             } catch (Exception $e) {
-                self::log('error','admin page_services', ['error'=>$e->getMessage()]);
+                MORES_Logger::add('error', 'admin', $e->getMessage());
                 wp_admin_notice('Chyba: ' . esc_html($e->getMessage()), ['type'=>'error']);
             }
         }
@@ -244,7 +236,7 @@ class MORES_Plugin {
                 $wpdb->update($srv, ['calendar_id'=>$cal_id,'name'=>$name,'duration_minutes'=>$dur, 'price_now'=>floatval($_POST['price_now'] ?? 0),'price_cash'=>floatval($_POST['price_cash'] ?? 0)], ['id'=>$id]);
                 echo '<div class="updated"><p>Služba upravena.</p></div>';
             } catch (Exception $e) {
-                self::log('error','admin page_services', ['error'=>$e->getMessage()]);
+                MORES_Logger::add('error', 'admin', $e->getMessage());
                 wp_admin_notice('Chyba: ' . esc_html($e->getMessage()), ['type'=>'error']);
             }
         }
@@ -264,7 +256,7 @@ class MORES_Plugin {
                     }
                 }
             } catch (Exception $e) {
-                self::log('error','admin page_services', ['error'=>$e->getMessage()]);
+                MORES_Logger::add('error', 'admin', $e->getMessage());
                 wp_admin_notice('Chyba: ' . esc_html($e->getMessage()), ['type'=>'error']);
             }
         }
@@ -288,7 +280,7 @@ class MORES_Plugin {
                 echo '<a class="button button-link-delete" href="'.esc_url($del).'" onclick="return confirm(\'Smazat?\')">Smazat</a></p></form></div>';
                 return;
             } catch (Exception $e) {
-                self::log('error','admin page_services', ['error'=>$e->getMessage()]);
+                MORES_Logger::add('error', 'admin', $e->getMessage());
                 wp_admin_notice('Chyba: ' . esc_html($e->getMessage()), ['type'=>'error']);
             }
         }
@@ -335,7 +327,7 @@ class MORES_Plugin {
                     echo '<div class="updated"><p>Výluka přidána.</p></div>';
                 }
             } catch (Exception $e) {
-                self::log('error','admin page_services', ['error'=>$e->getMessage()]);
+                MORES_Logger::add('error', 'admin', $e->getMessage());
                 wp_admin_notice('Chyba: ' . esc_html($e->getMessage()), ['type'=>'error']);
             }
         }
@@ -344,10 +336,14 @@ class MORES_Plugin {
         if (isset($_GET['del']) && current_user_can('manage_options')) {
             try {
                 $del = intval($_GET['del']);
-                $wpdb->delete($blk, ['id'=>$del]);
-                echo '<div class="updated"><p>Výluka odstraněna.</p></div>';
+                if (!isset($_GET['_wpnonce']) || !wp_verify_nonce($_GET['_wpnonce'], 'mores_blk_del_'.$del)) {
+                    echo '<div class="error"><p>Neplatný požadavek.</p></div>';
+                } else {
+					$wpdb->delete($blk, ['id'=>$del]);
+					echo '<div class="updated"><p>Výluka odstraněna.</p></div>';
+				}
             } catch (Exception $e) {
-                self::log('error','admin page_services', ['error'=>$e->getMessage()]);
+                MORES_Logger::add('error', 'admin', $e->getMessage());
                 wp_admin_notice('Chyba: ' . esc_html($e->getMessage()), ['type'=>'error']);
             }
         }
@@ -358,7 +354,7 @@ class MORES_Plugin {
         echo '<div class="wrap"><h1>Výluky (dovolené, svátky)</h1>';
         echo '<table class="widefat striped"><thead><tr><th>ID</th><th>Kalendář</th><th>Od</th><th>Do</th><th>Důvod</th><th></th></tr></thead><tbody>';
         foreach ($rows as $r) {
-            $del_url = add_query_arg(['del'=>$r->id]);
+            $del_url = wp_nonce_url(add_query_arg(['del'=>$r->id]), 'mores_blk_del_'.$r->id);
             echo '<tr>';
             echo '<td>'.intval($r->id).'</td>';
             echo '<td>'.esc_html($r->cal_name).'</td>';
@@ -434,10 +430,11 @@ class MORES_Plugin {
                 update_option('mores_show_weekdays_only', isset($_POST['weekdays_only']) ? 1 : 0);
                 update_option('mores_redirect_after_add', in_array($_POST['redirect_after_add'] ?? 'checkout', ['checkout','cart'], true) ? $_POST['redirect_after_add'] : 'checkout');
                 update_option('mores_cash_gateway', sanitize_text_field($_POST['cash_gateway'] ?? 'cod'));
+                update_option('mores_hold_ttl_minutes', max(5, intval($_POST['hold_ttl'] ?? 20)));
                 echo '<div class="updated"><p>Nastavení uloženo.</p></div>';
             
             } catch (Throwable $e) {
-                self::log('error','admin page_services', ['error'=>$e->getMessage()]);
+                MORES_Logger::add('error', 'admin', $e->getMessage());
                 wp_admin_notice('Chyba: ' . esc_html($e->getMessage()), ['type'=>'error']);
             }
         }
@@ -463,18 +460,19 @@ class MORES_Plugin {
 		}
 
 		// Řádek tabulky
+		wp_nonce_field('mores_settings');
+        echo '<table class="form-table">';
 		echo '<tr><th>Platební metoda – cena „hotově"</th><td><select name="cash_gateway">';
 		foreach ($available_gateways as $gid => $gtitle) {
 			echo '<option value="'.esc_attr($gid).'"'.selected($cash_gateway, $gid, false).'>'.esc_html($gtitle).' ('.esc_html($gid).')</option>';
 		}
 		echo '</select><br><small>Pro tuto metodu se použije cena „Hotově". Pro ostatní se použije „Platím teď".</small></td></tr>';
-
-        wp_nonce_field('mores_settings');
-        echo '<table class="form-table">';
         echo '<tr><th>Přesměrování po výběru termínu</th><td><select name="redirect_after_add">'.
              '<option value="checkout"'.selected($redirect_after_add,'checkout',false).'>Pokladna</option>'.
              '<option value="cart"'.selected($redirect_after_add,'cart',false).'>Košík</option>'.
              '</select></td></tr>';
+        $hold_ttl = intval(get_option('mores_hold_ttl_minutes', 20));
+        echo '<tr><th>Životnost nepotvrzeného termínu</th><td><input type="number" name="hold_ttl" value="'.esc_attr($hold_ttl).'" min="5" max="120" size="4"> min<br><small>Jak dlouho čekat na dokončení platby než se termín uvolní.</small></td></tr>';
         echo '<tr><th>Zobrazit jen pracovní dny</th><td><label><input type="checkbox" name="weekdays_only" '.checked(1,$weekdays_only,false).'> Po–Pá (skrýt víkend)</label></td></tr>';
         echo '<tr><th>Debug log</th><td><label><input type="checkbox" name="debug" '.checked(1,$debug,false).'> Zapnout zapisování do logu a zobrazovat menu Debug</label></td></tr>';
         echo '<tr><th>Cyklické výluky – svátky</th><td><label><input type="checkbox" name="holidays" '.checked(1,$hol,false).'> Blokovat státní svátky + Velký pátek a Velikonoční pondělí</label><br>';

@@ -5,7 +5,11 @@ class MORES_Woo {
     const SESSION_KEY = 'mores_payment_method';
 
     const PRODUCT_OPTION = 'mores_wc_product_id';
-    const HOLD_TTL_MIN = 20;
+    
+    const HOLD_TTL_MIN = 20; // fallback, skutečná hodnota se čte z options
+    public static function get_hold_ttl() {
+        return max(5, intval(get_option('mores_hold_ttl_minutes', 20)));
+    }
 
     public static function init() {
         add_action('woocommerce_checkout_update_order_review', [__CLASS__, 'on_checkout_update']);
@@ -16,9 +20,6 @@ class MORES_Woo {
         add_action('wp_ajax_mores_wc_add_to_cart', [__CLASS__, 'ajax_add_to_cart']);
         add_action('wp_ajax_nopriv_mores_wc_add_to_cart', [__CLASS__, 'ajax_add_to_cart']);
 
-        add_filter('woocommerce_before_calculate_totals', [__CLASS__, 'apply_cart_item_price'], 20, 1);
-        add_action('woocommerce_checkout_create_order_line_item', [__CLASS__, 'add_item_meta'], 10, 4);
-        
         add_filter('woocommerce_cart_item_name', [__CLASS__, 'filter_cart_item_name'], 10, 3);
 		add_filter('woocommerce_get_item_data', [__CLASS__, 'filter_cart_item_data'], 10, 2);
 		add_filter('woocommerce_product_get_description', [__CLASS__, 'filter_placeholder_description'], 10, 2);
@@ -29,11 +30,8 @@ class MORES_Woo {
 		add_filter('woocommerce_hidden_order_itemmeta', [__CLASS__, 'hide_meta_keys']);
 
 
-        add_action('woocommerce_payment_complete', [__CLASS__, 'on_payment_complete'], 10, 1);
         add_action('woocommerce_order_status_processing', [__CLASS__, 'on_processing'], 10, 1);
         add_action('woocommerce_order_status_completed', [__CLASS__, 'on_processing'], 10, 1);
-        add_action('woocommerce_order_status_cancelled', [__CLASS__, 'on_cancelled'], 10, 1);
-        add_action('woocommerce_order_status_failed', [__CLASS__, 'on_cancelled'], 10, 1);
         add_action('woocommerce_check_cart_items', [__CLASS__, 'validate_cart_holds']);
 		add_action('woocommerce_before_checkout_process', [__CLASS__, 'validate_cart_holds']);
 		add_filter('woocommerce_checkout_cart_item_quantity', [__CLASS__, 'checkout_remove_link'], 10, 3);
@@ -43,12 +41,17 @@ class MORES_Woo {
 		
 		//cancel order
 		add_action('woocommerce_email_after_order_table', [__CLASS__, 'email_cancel_link'], 10, 4);
+		add_filter('woocommerce_email_attachments',       [__CLASS__, 'email_ics_attachment'], 10, 3);
 		add_action('template_redirect', [__CLASS__, 'maybe_handle_public_cancel']);
 		add_action('template_redirect', [__CLASS__, 'maybe_serve_booking_ics']);
 
 		add_action('woocommerce_order_status_cancelled', [__CLASS__, 'release_booking_for_order']);
 		add_action('woocommerce_order_status_refunded',  [__CLASS__, 'release_booking_for_order']);
 		add_action('woocommerce_order_status_failed',    [__CLASS__, 'release_booking_for_order']);
+		
+		add_action('woocommerce_before_cart',          [__CLASS__, 'cleanup_expired_holds']);
+		add_action('woocommerce_before_checkout_form', [__CLASS__, 'cleanup_expired_holds']);
+		add_action('woocommerce_cart_item_removed',    [__CLASS__, 'on_cart_item_removed'], 10, 2);
 		
 		add_action('mores_cleanup_expired_holds', [__CLASS__, 'cleanup_expired_holds']);
 		if ( ! wp_next_scheduled('mores_cleanup_expired_holds') ) {
@@ -121,11 +124,6 @@ class MORES_Woo {
     public static function ajax_add_to_cart() {
         try {
             check_ajax_referer('mores_ajax', 'nonce');
-            /*
-            if ( ! class_exists('WooCommerce') || ! function_exists('WC') ) {
-                wp_send_json_error(['message'=>'WooCommerce není aktivní.']);
-            }
-            */
             if ( ! class_exists('WooCommerce') || ! function_exists('WC') ) {
 				wp_send_json_error(['message'=>'WooCommerce není aktivní.']);
 				return; // ← toto chybí!
@@ -154,7 +152,8 @@ class MORES_Woo {
             $start_local = $date . ' ' . $time . ':00';
 
             // Create hold
-            $res = MORES_Availability::create_hold($calendar_id, $service_id, $start_local, $name, $email, ['phone'=>$phone,'address'=>$address], self::HOLD_TTL_MIN);
+            //$res = MORES_Availability::create_hold($calendar_id, $service_id, $start_local, $name, $email, ['phone'=>$phone,'address'=>$address], self::HOLD_TTL_MIN);
+            $res = MORES_Availability::create_hold($calendar_id, $service_id, $start_local, $name, $email, ['phone'=>$phone,'address'=>$address], self::get_hold_ttl());
             if (empty($res['ok'])) {
                 wp_send_json_error(['message'=>$res['message'] ?? 'Termín je obsazen.']);
             }
@@ -253,30 +252,7 @@ class MORES_Woo {
         }
     }
 
-    public static function apply_cart_item_price($cart) {
-        if ( is_admin() && ! defined('DOING_AJAX') ) return;
-        if ( empty($cart) ) return;
-        foreach ($cart->get_cart() as $ci) {
-            if (!empty($ci['mores_price'])) {
-                $ci['data']->set_price( floatval($ci['mores_price']) );
-            }
-        }
-    }
-
-    public static function add_item_meta($item, $cart_item_key, $values, $order) {
-        $keys = ['mores_booking_id','mores_calendar_id','mores_service_id','mores_start_local'];
-        foreach ($keys as $k) {
-            if (isset($values[$k])) {
-                $item->add_meta_data($k, $values[$k], true);
-            }
-        }
-    }
-
     public static function on_processing($order_id) {
-        self::transition_booking($order_id, true);
-    }
-
-    public static function on_payment_complete($order_id) {
         self::transition_booking($order_id, true);
     }
 
@@ -293,8 +269,6 @@ class MORES_Woo {
                 if ($confirm) {
                     MORES_Availability::confirm_booking($booking_id, $order_id);
                     self::update_booking_from_order($booking_id, $order);
-                    // email confirmation to customer
-                    if (class_exists('MORES_Email')) { MORES_Email::send_confirmation($booking_id); }
                 } else {
                     MORES_Availability::cancel_booking($booking_id);
                 }
@@ -451,7 +425,7 @@ class MORES_Woo {
 		// Nejspolehlivější metoda – obalíme výstup za naší zprávou do output bufferu a zahodíme
 		add_action('woocommerce_cart_is_empty', [__CLASS__, 'start_discard_after_message'], 6);
 		add_action('woocommerce_after_cart',    [__CLASS__, 'end_discard'], 1);
-		register_shutdown_function([__CLASS__, 'end_discard']);
+		//register_shutdown_function([__CLASS__, 'end_discard']);
 	}
 
 	public static function start_discard_after_message() {
@@ -462,6 +436,14 @@ class MORES_Woo {
 		if ( ob_get_level() > 0 ) {
 			ob_end_clean(); // zahodí "Novinka" sekci
 		}
+	}
+	
+	public static function hide_empty_cart_product_loop( $html ) {
+		return '';
+	}
+
+	public static function ob_start_discard() {
+		ob_start();
 	}
 
 	public static function filter_cart_item_data($item_data, $cart_item){
@@ -532,7 +514,8 @@ class MORES_Woo {
 
 			// Hold vypršel → zablokovat platbu
 			if (!empty($row->expires_at) && $row->expires_at <= $now) {
-				wc_add_notice(__('Rezervace vypršela (30 min). Vyberte nový termín.', 'mo-reservations'), 'error');
+				$ttl = self::get_hold_ttl();
+				wc_add_notice(sprintf(__('Rezervace vypršela (%d min). Vyberte nový termín.', 'mo-reservations'), $ttl), 'error');
 				WC()->cart->remove_cart_item($key);
 			}
 		}
@@ -609,6 +592,36 @@ class MORES_Woo {
 			break; // stačí jeden odkaz
 		}
 	}
+	
+	public static function email_ics_attachment( $attachments, $email_id, $order ) {
+		$allowed = ['customer_processing_order', 'customer_completed_order', 'customer_on_hold_order'];
+		if ( ! in_array( $email_id, $allowed, true ) ) return $attachments;
+		if ( ! is_a( $order, 'WC_Order' ) ) return $attachments;
+
+		foreach ( $order->get_items() as $item ) {
+			$bid = $item->get_meta( '_mores_booking_id', true );
+			if ( ! $bid ) continue;
+
+			global $wpdb;
+			$row = $wpdb->get_row( $wpdb->prepare(
+				"SELECT token FROM {$wpdb->prefix}mores_bookings WHERE id=%d", (int) $bid
+			) );
+			if ( ! $row || empty( $row->token ) ) continue;
+
+			$ics  = MORES_ICS::generate_booking_ics( (int) $bid );
+			$dir  = wp_upload_dir();
+			$path = trailingslashit( $dir['basedir'] ) . "mores-booking-{$bid}.ics";
+			file_put_contents( $path, $ics );
+			$attachments[] = $path;
+
+			add_action( 'woocommerce_email_sent', static function() use ( $path ) {
+				@unlink( $path );
+			} );
+
+			break;
+		}
+		return $attachments;
+	}
 
 	public static function maybe_handle_public_cancel(){
 		if ( empty($_GET['mores_cancel']) ) return;
@@ -644,27 +657,54 @@ class MORES_Woo {
 	public static function cleanup_expired_holds() {
 		global $wpdb;
 		$tbl = $wpdb->prefix . 'mores_bookings';
+		$ttl = self::get_hold_ttl();
 		$now = gmdate('Y-m-d H:i:s');
 
-		// 1) Expirované holds → zruš objednávku + smaž
-		$expired = $wpdb->get_col( $wpdb->prepare(
-			"SELECT id FROM $tbl WHERE status = 'hold' AND expires_at IS NOT NULL AND expires_at <= %s",
+		// Najdi expirované hold rezervace
+		$expired = $wpdb->get_results( $wpdb->prepare(
+			"SELECT id, order_id FROM $tbl
+			 WHERE status = 'hold'
+			   AND expires_at IS NOT NULL
+			   AND expires_at <= %s",
 			$now
 		) );
 
-		foreach ($expired as $bid) {
-			$row = $wpdb->get_row( $wpdb->prepare("SELECT order_id FROM $tbl WHERE id=%d", (int)$bid) );
-			if ($row && $row->order_id && function_exists('wc_get_order')) {
-				$order = wc_get_order((int)$row->order_id);
-				if ($order && $order->has_status('pending')) {
-					$order->update_status('cancelled', 'Automaticky zrušeno – zákazník nedokončil platbu v časovém limitu.');
+		foreach ( $expired as $row ) {
+			// Pokud má navázanou WC objednávku, zkontroluj její stáří
+			if ( $row->order_id && function_exists('wc_get_order') ) {
+				$order = wc_get_order( (int) $row->order_id );
+				if ( $order ) {
+					// Objednávka existuje a je pending → zruš ji pokud je starší než TTL
+					if ( $order->has_status('pending') ) {
+						$created = $order->get_date_created();
+						if ( $created ) {
+							$age_minutes = ( time() - $created->getTimestamp() ) / 60;
+							if ( $age_minutes < $ttl ) {
+								continue; // Objednávka je ještě čerstvá, nech ji
+							}
+						}
+						$order->update_status(
+							'cancelled',
+							__( 'Automaticky zrušeno – zákazník nedokončil platbu v časovém limitu.', 'mo-reservations' )
+						);
+					} elseif ( ! $order->has_status( ['cancelled','failed','refunded'] ) ) {
+						// Objednávka je v jiném aktivním stavu (processing, completed...) → rezervaci potvrď
+						MORES_Availability::confirm_booking( (int) $row->id, (int) $row->order_id );
+						continue;
+					}
 				}
 			}
-			$wpdb->delete($tbl, ['id' => (int)$bid], ['%d']);
-		}
 
-		// 2) Smaž osiřelé záznamy se statusem 'cancelled' (pozůstatky starších verzí)
-		$wpdb->query("DELETE FROM $tbl WHERE status = 'cancelled'");
+			// Smaž expirovaný hold
+			$wpdb->delete( $tbl, ['id' => (int) $row->id], ['%d'] );
+		}
+	}
+
+	public static function on_cart_item_removed( $cart_item_key, $cart ) {
+		$item = $cart->removed_cart_contents[ $cart_item_key ] ?? null;
+		if ( $item && ! empty( $item['mores_booking_id'] ) ) {
+			MORES_Availability::cancel_booking( (int) $item['mores_booking_id'] );
+		}
 	}
 
 	public static function release_booking_for_order( $order_id ){

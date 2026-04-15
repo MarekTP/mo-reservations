@@ -9,34 +9,16 @@ class MORES_ICS {
     }
 
     public function register_query_vars() {
-        add_rewrite_tag('%mo_res_cancel%', '([^&]+)');
+        add_rewrite_tag('%mores_cancel%', '([^&]+)');
         add_rewrite_tag('%mo_res_ics%', '([0-9]+)');
         add_rewrite_tag('%mo_res_key%', '([^&]+)');
     }
 
     public function handle_requests() {
-        if (isset($_GET['mo_res_cancel'])) {
-            $this->handle_cancel($_GET['mo_res_cancel']);
-            exit;
-        }
         if (isset($_GET['mo_res_ics']) && isset($_GET['mo_res_key'])) {
             $this->serve_calendar_ics(intval($_GET['mo_res_ics']), sanitize_text_field($_GET['mo_res_key']));
             exit;
         }
-    }
-
-    protected function handle_cancel($token) {
-        global $wpdb;
-        $tbl = $wpdb->prefix . 'mores_bookings';
-        $b = $wpdb->get_row($wpdb->prepare("SELECT * FROM $tbl WHERE cancel_token=%s", $token));
-        if (!$b) {
-            wp_die(__('Rezervace nenalezena nebo již stornována.', 'mores'));
-        }
-        if ($b->status === 'cancelled') {
-            wp_die(__('Rezervace již byla stornována.', 'mores'));
-        }
-        $wpdb->update($tbl, ['status' => 'cancelled'], ['id' => $b->id]);
-        wp_die(__('Rezervace byla úspěšně zrušena. Děkujeme za zprávu.', 'mores'));
     }
 
     public static function generate_booking_ics($booking_id) {

@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MO Reservations
  * Description: Jednoduchý rezervační systém s řetězením slotů, e-mailovým potvrzením, ICS feedem a storno odkazem.
- * Version: 0.4.19
+ * Version: 0.4.20
  * Author: MO
  * Requires Plugins: woocommerce
  */
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define('MORES_VER', '0.4.19');
+define('MORES_VER', '0.4.20');
 define('MORES_PATH', plugin_dir_path(__FILE__));
 define('MORES_URL', plugin_dir_url(__FILE__));
 
@@ -43,7 +43,7 @@ function mores_uninstall() {
     // Odstranění tabulek dle nastavení
     $drop = get_option('mores_drop_tables_on_uninstall', 0);
     if ($drop) {
-        MORES_DB::drop_tables();
+        MORES_DB::uninstall();
     }
 }
 

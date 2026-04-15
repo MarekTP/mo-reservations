@@ -107,10 +107,10 @@ class MORES_DB {
     }
 
     public static function maybe_update() {
-        self::activate();
         $opt_key = 'mores_db_ver';
         $cur = get_option($opt_key, '');
         if ($cur !== self::MORES_DB_VER) {
+            self::activate();
             self::migrate();
             update_option($opt_key, self::MORES_DB_VER);
         }

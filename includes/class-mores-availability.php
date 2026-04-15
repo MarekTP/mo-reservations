@@ -97,10 +97,14 @@ class MORES_Availability {
 
     public static function compute_available_starts($calendar_id, $service_id, $date_str) {
         global $wpdb;
-        $tz = mores_tz();
         $cal = self::get_calendar($calendar_id);
         $cal = self::normalize_calendar_defaults($cal);
         if (!$cal) return [];
+        $tz = !empty($cal->timezone) ? new DateTimeZone($cal->timezone) : mores_tz();
+        if ( self::is_blackout_day($calendar_id, $date_str) ) return [];
+        $dow = (int)(new DateTime($date_str, $tz))->format('N'); // 1=Po..7=Ne
+        $days_open = array_filter(array_map('intval', explode(',', $cal->days_open)));
+        if ( !in_array($dow, $days_open, true) ) return [];
 
         $srv_tbl = $wpdb->prefix . 'mores_services';
         $service = $wpdb->get_row($wpdb->prepare("SELECT * FROM $srv_tbl WHERE id=%d AND calendar_id=%d", $service_id, $calendar_id));
@@ -129,25 +133,43 @@ class MORES_Availability {
         }
         
         // Chaining filter (strict adjacency)
-        if (isset($cal->chaining) && $cal->chaining === 'on') {
+        if (isset($cal->chaining) && $cal->chaining === 'edge') {
             $bookings = self::list_bookings_for_day($calendar_id, $date_str);
-            if (!empty($bookings)) {
-                $allowed = [];
-                foreach ($bookings as $b) {
-                    $b_start = new DateTime($b->start_utc, new DateTimeZone('UTC')); $b_start->setTimezone($tz);
-                    $b_end   = new DateTime($b->end_utc,   new DateTimeZone('UTC')); $b_end->setTimezone($tz);
-                    // start immediately after existing booking + buffer
-                    $after = (clone $b_end);
-                    $after->modify('+' . max(0,intval($cal->buffer_after_minutes)) . ' minutes');
-                    $allowed[] = $after->format('H:i');
-                    // start so that we end exactly at existing booking start
-                    $before = (clone $b_start);
-                    $before->modify('-' . intval($service->duration_minutes) . ' minutes');
-                    $allowed[] = $before->format('H:i');
-                }
-                $allowed = array_unique($allowed);
-                $starts = array_values(array_intersect($starts, $allowed));
+            $allowed = [];
+
+            foreach ($bookings as $b) {
+                $b_start = new DateTime($b->start_utc, new DateTimeZone('UTC')); $b_start->setTimezone($tz);
+                $b_end   = new DateTime($b->end_utc,   new DateTimeZone('UTC')); $b_end->setTimezone($tz);
+                $after = (clone $b_end);
+                $after->modify('+' . max(0, intval($cal->buffer_after_minutes)) . ' minutes');
+                $allowed[] = $after->format('H:i');
+                $before = (clone $b_start);
+                $before->modify('-' . intval($service->duration_minutes) . ' minutes');
+                $allowed[] = $before->format('H:i');
             }
+
+            // Hrany pracovní doby
+            list($oh, $om) = mores_parse_hhmm($cal->open_time);
+            list($ch, $cm) = mores_parse_hhmm($cal->close_time);
+            $open_dt  = new DateTime($date_str . ' 00:00:00', $tz); $open_dt->setTime($oh, $om, 0);
+            $close_dt = new DateTime($date_str . ' 00:00:00', $tz); $close_dt->setTime($ch, $cm, 0);
+            $allowed[] = $open_dt->format('H:i');
+            $before_close = (clone $close_dt); $before_close->modify('-' . intval($service->duration_minutes) . ' minutes');
+            $allowed[] = $before_close->format('H:i');
+
+            // Hrany pauzy
+            list($bh, $bm) = mores_parse_hhmm($cal->break_start);
+            list($eh, $em) = mores_parse_hhmm($cal->break_end);
+            if (($bh + $bm + $eh + $em) > 0) {
+                $pause_s = new DateTime($date_str . ' 00:00:00', $tz); $pause_s->setTime($bh, $bm, 0);
+                $pause_e = new DateTime($date_str . ' 00:00:00', $tz); $pause_e->setTime($eh, $em, 0);
+                $before_break = (clone $pause_s); $before_break->modify('-' . intval($service->duration_minutes) . ' minutes');
+                $allowed[] = $before_break->format('H:i');
+                $allowed[] = $pause_e->format('H:i');
+            }
+
+            $allowed = array_unique($allowed);
+            $starts  = array_values(array_intersect($starts, $allowed));
         }
         return $starts;
     }
@@ -366,9 +388,9 @@ class MORES_Availability {
 
     public static function book($calendar_id, $service_id, $start_local_str, $name, $email, $extra = []) {
         global $wpdb;
-        $tz = mores_tz();
         $cal = self::get_calendar($calendar_id);
         $cal = self::normalize_calendar_defaults($cal);
+        $tz = ($cal && !empty($cal->timezone)) ? new DateTimeZone($cal->timezone) : mores_tz();
         $srv_tbl = $wpdb->prefix . 'mores_services';
         $service = $wpdb->get_row($wpdb->prepare("SELECT * FROM $srv_tbl WHERE id=%d AND calendar_id=%d", $service_id, $calendar_id));
         if (!$cal || !$service) return ['ok'=>false, 'message'=>'Konfigurace nebyla nalezena.'];
@@ -416,8 +438,9 @@ class MORES_Availability {
 
     public static function create_hold($calendar_id, $service_id, $start_local_str, $name, $email, $extra = [], $ttl_minutes = 20) {
         global $wpdb;
-        $tz = mores_tz();
         $srv_tbl = $wpdb->prefix . 'mores_services';
+        $cal_for_tz = self::normalize_calendar_defaults(self::get_calendar($calendar_id));
+        $tz = ($cal_for_tz && !empty($cal_for_tz->timezone)) ? new DateTimeZone($cal_for_tz->timezone) : mores_tz();
         $service = $wpdb->get_row($wpdb->prepare("SELECT * FROM $srv_tbl WHERE id=%d AND calendar_id=%d", $service_id, $calendar_id));
         if (!$service) return ['ok'=>false, 'message'=>'Služba nenalezena.'];
 
@@ -429,6 +452,9 @@ class MORES_Availability {
         if ($start_local < $now_local) { return ['ok'=>false, 'message'=>'Minulý termín nelze rezervovat.']; }
 
         $day = $start_local->format('Y-m-d');
+        if ( self::is_blackout_day($calendar_id, $day) ) {
+			return ['ok' => false, 'message' => 'Vybraný den je svátek nebo výluka.'];
+		}
         $existing = self::list_bookings_for_day($calendar_id, $day);
         foreach ($existing as $b) {
             $b_s = new DateTime($b->start_utc, new DateTimeZone('UTC'));

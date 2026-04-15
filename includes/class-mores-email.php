@@ -20,7 +20,7 @@ class MORES_Email {
 
         $to = $booking->customer_email;
         $subject = sprintf(__('Potvrzení rezervace %s', 'mores'), $service ? $service->name : '');
-        $cancel_url = add_query_arg(['mo_res_cancel' => $booking->cancel_token], home_url('/'));
+        $cancel_url = add_query_arg(['mores_cancel' => rawurlencode($booking->token)], home_url('/'));
 
         
         $cancel_url = esc_url($cancel_url);
