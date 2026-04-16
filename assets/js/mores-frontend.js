@@ -1,7 +1,6 @@
 (function(){
 function qs(el, sel){ return el.querySelector(sel); }
 function qsa(el, sel){ return Array.from(el.querySelectorAll(sel)); }
-function addDays(d, n){ var x=new Date(d); x.setDate(x.getDate()+n); return x; }
 
 function mondayOf(date){
   var d = new Date(date);
@@ -26,8 +25,6 @@ function fmtDate(d){
          ('0'+(d.getMonth()+1)).slice(-2) + '-' +
          ('0'+d.getDate()).slice(-2);
 }
-
-function czDow(n){ return ['','Po','Út','St','Čt','Pá','So','Ne'][n] || ''; }
 
 function renderGrid(form, grid){
   var wrap = form.querySelector('.mores-grid-wrap');
@@ -189,7 +186,7 @@ function loadWeek(form){
       });
 
       // sjednotit label + další požadavky na přesné pondělí z backendu
-      var lblEl = document.querySelector('.mores-week-label');
+      var lblEl = form.querySelector('.mores-week-label');
       if (g.days && g.days.length){
         var first = new Date(g.days[0].date + 'T00:00:00');  // 1. den týdne z backendu
         var wsStr = fmtDate(first);
@@ -251,14 +248,11 @@ document.addEventListener('click', function(e){
 
 // init on DOM ready: auto-load first service
 document.addEventListener('DOMContentLoaded', function(){
-  var form = document.querySelector('form.mores-form');
-  if (!form) return;
-
-  // výchozí pondělí
-  var ws0 = mondayOf(new Date());
-  form.dataset.weekStart = fmtDate(ws0);
-
-  loadWeek(form);
+  document.querySelectorAll('form.mores-form').forEach(function(form) {
+    var ws0 = mondayOf(new Date());
+    form.dataset.weekStart = fmtDate(ws0);
+    loadWeek(form);
+  });
 });
 
 
@@ -282,7 +276,7 @@ document.addEventListener('submit', function(e){
 		res.textContent = json.data && json.data.message ? json.data.message : '';
 		form.reset();
 		var recap = qs(form, '.mores-recap'); if (recap) recap.style.display = 'none';
-		qs(form, '.mores-time-help').textContent='';
+		var th = qs(form, '.mores-time-help'); if (th) th.textContent='';
 		var today = new Date(); var monday = mondayOf(today);
 		form.dataset.weekStart = fmtDate(monday);
 		loadWeek(form);

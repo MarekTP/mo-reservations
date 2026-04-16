@@ -52,7 +52,9 @@ class MORES_Availability {
 
     public static function list_bookings_for_day($calendar_id, $date_str) {
         global $wpdb;
-        $tz = mores_tz();
+        $cal_tz = self::get_calendar($calendar_id);
+        $cal_tz = self::normalize_calendar_defaults($cal_tz);
+        $tz = ($cal_tz && !empty($cal_tz->timezone)) ? new DateTimeZone($cal_tz->timezone) : mores_tz();
         $tbl = $wpdb->prefix . 'mores_bookings';
         $local_start = new DateTime($date_str . ' 00:00:00', $tz);
         $local_end = clone $local_start; $local_end->modify('+1 day');
@@ -70,7 +72,7 @@ class MORES_Availability {
     }
 
     protected static function get_blocked_intervals($calendar_id, $date_str, $cal) {
-        $tz = mores_tz();
+        $tz = (!empty($cal->timezone)) ? new DateTimeZone($cal->timezone) : mores_tz();
         $blocked = [];
 
         // bookings extended by buffer
@@ -225,13 +227,10 @@ class MORES_Availability {
         $end_local = (clone $start_local)->modify('+7 day');
         $end_utc   = (clone $end_local);   $end_utc->setTimezone(new DateTimeZone('UTC'));
 
-        // Proaktivně smaž expirované holds (nejen hodinový cron)
+        if ( class_exists('MORES_Woo') ) {
+            MORES_Woo::cleanup_expired_holds();
+        }
         $now_utc_str = gmdate('Y-m-d H:i:s');
-        $wpdb->query( $wpdb->prepare(
-            "DELETE FROM {$bkg_tbl}
-             WHERE status = 'hold' AND expires_at IS NOT NULL AND expires_at <= %s",
-            $now_utc_str
-        ) );
 
         // stáhni rezervace v rozsahu (UTC) – včetně aktivních holds
         $bookings = $wpdb->get_results( $wpdb->prepare(
@@ -443,6 +442,7 @@ class MORES_Availability {
         $tz = ($cal_for_tz && !empty($cal_for_tz->timezone)) ? new DateTimeZone($cal_for_tz->timezone) : mores_tz();
         $service = $wpdb->get_row($wpdb->prepare("SELECT * FROM $srv_tbl WHERE id=%d AND calendar_id=%d", $service_id, $calendar_id));
         if (!$service) return ['ok'=>false, 'message'=>'Služba nenalezena.'];
+        if (!$cal_for_tz) return ['ok'=>false, 'message'=>'Kalendář nenalezen.'];
 
         $start_local = new DateTime($start_local_str, $tz);
         $end_local = (clone $start_local); $end_local->modify('+' . intval($service->duration_minutes) . ' minutes');
@@ -453,8 +453,36 @@ class MORES_Availability {
 
         $day = $start_local->format('Y-m-d');
         if ( self::is_blackout_day($calendar_id, $day) ) {
-			return ['ok' => false, 'message' => 'Vybraný den je svátek nebo výluka.'];
-		}
+            return ['ok' => false, 'message' => 'Vybraný den je svátek nebo výluka.'];
+        }
+
+        // Ověř den v týdnu
+        $dow_v = (int)$start_local->format('N');
+        $days_open_v = array_filter(array_map('intval', explode(',', $cal_for_tz->days_open)));
+        if ( !in_array($dow_v, $days_open_v, true) ) {
+            return ['ok'=>false, 'message'=>'Vybraný den není pracovní.'];
+        }
+
+        // Ověř pracovní dobu
+        list($oh_v, $om_v) = mores_parse_hhmm($cal_for_tz->open_time);
+        list($ch_v, $cm_v) = mores_parse_hhmm($cal_for_tz->close_time);
+        $start_min_v = (int)$start_local->format('H') * 60 + (int)$start_local->format('i');
+        $end_min_v   = (int)$end_local->format('H')   * 60 + (int)$end_local->format('i');
+        if ( $start_min_v < ($oh_v*60+$om_v) || $end_min_v > ($ch_v*60+$cm_v) ) {
+            return ['ok'=>false, 'message'=>'Termín je mimo pracovní dobu.'];
+        }
+
+        // Ověř přestávku
+        list($bh_v, $bm_v) = mores_parse_hhmm($cal_for_tz->break_start);
+        list($eh_v, $em_v) = mores_parse_hhmm($cal_for_tz->break_end);
+        if ( ($bh_v + $bm_v + $eh_v + $em_v) > 0 ) {
+            $brk_s = $bh_v*60+$bm_v;
+            $brk_e = $eh_v*60+$em_v;
+            if ( $start_min_v < $brk_e && $end_min_v > $brk_s ) {
+                return ['ok'=>false, 'message'=>'Termín zasahuje do přestávky.'];
+            }
+        }
+
         $existing = self::list_bookings_for_day($calendar_id, $day);
         foreach ($existing as $b) {
             $b_s = new DateTime($b->start_utc, new DateTimeZone('UTC'));

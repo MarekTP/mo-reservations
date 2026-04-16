@@ -2,7 +2,7 @@
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 class MORES_DB {
-    const MORES_DB_VER = '2026-01-09';
+    const MORES_DB_VER = '2026-04-20';
 
     public static function activate() {
         global $wpdb;
@@ -63,7 +63,8 @@ class MORES_DB {
             KEY srv (service_id),
             KEY st (status),
             KEY s (start_utc),
-            KEY e (end_utc)
+            KEY e (end_utc),
+            KEY tok(token)
         ) $charset;";
 
         $sql_blk = "CREATE TABLE $blk (
@@ -118,11 +119,12 @@ class MORES_DB {
 
     public static function migrate() {
         // Drop leftover index on 'context'
-        global $wpdb; $log = $wpdb->prefix.'mores_logs';
+        global $wpdb; 
+        $log = $wpdb->prefix.'mores_logs';
         try { $idx = $wpdb->get_results("SHOW INDEX FROM $log WHERE Column_name='context'"); if (!empty($idx)) { foreach ($idx as $ix) { $key = isset($ix->Key_name)?$ix->Key_name:(is_array($ix)?$ix['Key_name']:''); if ($key) $wpdb->query("ALTER TABLE $log DROP INDEX `$key`"); } } } catch (Throwable $e) {}
-        global $wpdb;
         $cal = $wpdb->prefix . 'mores_calendars';
         $srv = $wpdb->prefix . 'mores_services';
+        $bkg = $wpdb->prefix . 'mores_bookings';
         $log = $wpdb->prefix . 'mores_logs';
 
         if ( ! self::column_exists($srv, 'price_now') ) {
@@ -137,11 +139,20 @@ class MORES_DB {
         if ( ! self::column_exists($log, 'created_at') ) {
             $wpdb->query("ALTER TABLE $log ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
         }
+        if ( ! self::index_exists($bkg, 'tok') ) {
+            $wpdb->query("ALTER TABLE $bkg ADD INDEX tok (token)");
+        }
     }
 
     protected static function column_exists($table, $col) {
         global $wpdb;
         $r = $wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM $table LIKE %s", $col));
+        return !empty($r);
+    }
+    
+    protected static function index_exists($table, $key_name) {
+        global $wpdb;
+        $r = $wpdb->get_var($wpdb->prepare("SHOW INDEX FROM $table WHERE Key_name=%s", $key_name));
         return !empty($r);
     }
 

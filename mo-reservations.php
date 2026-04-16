@@ -35,8 +35,8 @@ require_once MORES_PATH . 'includes/class-mores-ics.php';
 require_once MORES_PATH . 'includes/helpers.php';
 
 register_activation_hook(__FILE__, ['MORES_DB', 'activate']);
+register_deactivation_hook(__FILE__, 'mores_deactivate');
 register_uninstall_hook(__FILE__, 'mores_uninstall');
-
 
 
 function mores_uninstall() {
@@ -44,6 +44,13 @@ function mores_uninstall() {
     $drop = get_option('mores_drop_tables_on_uninstall', 0);
     if ($drop) {
         MORES_DB::uninstall();
+    }
+}
+
+function mores_deactivate() {
+    $timestamp = wp_next_scheduled('mores_cleanup_expired_holds');
+    if ($timestamp) {
+        wp_unschedule_event($timestamp, 'mores_cleanup_expired_holds');
     }
 }
 

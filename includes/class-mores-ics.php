@@ -8,12 +8,10 @@ class MORES_ICS {
         add_action('template_redirect', [$this, 'handle_requests']);
     }
 
-    public function register_query_vars() {
-        add_rewrite_tag('%mores_cancel%', '([^&]+)');
+	public function register_query_vars() {
         add_rewrite_tag('%mo_res_ics%', '([0-9]+)');
         add_rewrite_tag('%mo_res_key%', '([^&]+)');
     }
-
     public function handle_requests() {
         if (isset($_GET['mo_res_ics']) && isset($_GET['mo_res_key'])) {
             $this->serve_calendar_ics(intval($_GET['mo_res_ics']), sanitize_text_field($_GET['mo_res_key']));

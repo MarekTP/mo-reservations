@@ -8,8 +8,6 @@ class MORES_Plugin {
         add_action('init', [$this, 'register_block']);
         add_shortcode('mo_reservation', [$this, 'render_shortcode']);
         add_action('wp_enqueue_scripts', [$this, 'enqueue_assets']);
-        //add_action('wp_ajax_mores_get_slots', [$this, 'ajax_get_slots']);
-        //add_action('wp_ajax_nopriv_mores_get_slots', [$this, 'ajax_get_slots']);
         add_action('wp_ajax_mores_make_booking', [$this, 'ajax_make_booking']);
         add_action('wp_ajax_nopriv_mores_make_booking', [$this, 'ajax_make_booking']);
         add_action('wp_ajax_mores_get_week', [$this, 'ajax_get_week']);
@@ -29,17 +27,21 @@ class MORES_Plugin {
         global $wpdb;
         $tbl = $wpdb->prefix . 'mores_bookings';
         $rows = $wpdb->get_results("SELECT * FROM $tbl ORDER BY start_utc DESC LIMIT 200");
-        echo '<div class="wrap"><h1>Rezervace</h1><table class="widefat striped"><thead><tr><th>ID</th><th>Kalendář</th><th>Služba</th><th>Od</th><th>Do</th><th>Jméno</th><th>Email</th><th>Stav</th></tr></thead><tbody>';
+        $tz = wp_timezone();
+        echo '<div class="wrap"><h1>Rezervace</h1><table class="widefat striped"><thead><tr><th>ID</th><th>Kalendář</th><th>Služba</th><th>Od (místní čas)</th><th>Do</th><th>Jméno</th><th>Email</th><th>Stav</th><th>Objednávka</th></tr></thead><tbody>';
         foreach ($rows as $r) {
+            $s_local = (new DateTime($r->start_utc, new DateTimeZone('UTC')))->setTimezone($tz)->format('d.m.Y H:i');
+            $e_local = (new DateTime($r->end_utc,   new DateTimeZone('UTC')))->setTimezone($tz)->format('H:i');
             echo '<tr>';
             echo '<td>'.esc_html($r->id).'</td>';
             echo '<td>'.esc_html($r->calendar_id).'</td>';
             echo '<td>'.esc_html($r->service_id).'</td>';
-            echo '<td>'.esc_html($r->start_utc).'</td>';
-            echo '<td>'.esc_html($r->end_utc).'</td>';
+            echo '<td>'.esc_html($s_local).'</td>';
+            echo '<td>'.esc_html($e_local).'</td>';
             echo '<td>'.esc_html($r->customer_name).'</td>';
             echo '<td>'.esc_html($r->customer_email).'</td>';
             echo '<td>'.esc_html($r->status).'</td>';
+            echo '<td>'.($r->order_id ? '<a href="'.esc_url(admin_url('post.php?post='.intval($r->order_id).'&action=edit')).'">'.esc_html('#'.$r->order_id).'</a>' : '–').'</td>';
             echo '</tr>';
         }
         echo '</tbody></table></div>';
@@ -148,7 +150,6 @@ class MORES_Plugin {
                 wp_nonce_field('mores_cal_update');
                 echo '<input type="hidden" name="id" value="'.intval($row->id).'">';
                 echo '<table class="form-table">';
-                echo '<tr><th>Zobrazit jen pracovní dny</th><td><label><input type="checkbox" name="weekdays_only" '.checked(1,$weekdays_only,false).'> Po–Pá (skrýt víkend)</label></td></tr>';
                 echo '<tr><th>Název</th><td><input name="name" class="regular-text" required value="'.esc_attr($row->name).'"></td></tr>';
                 echo '<tr><th>Otevírací doba</th><td><input name="open_time" value="'.esc_attr($row->open_time).'" size="6"> – <input name="close_time" value="'.esc_attr($row->close_time).'" size="6"></td></tr>';
                 echo '<tr><th>Granularita</th><td><input name="granularity" value="'.esc_attr($row->granularity).'" size="4"> min</td></tr>';
@@ -510,15 +511,22 @@ class MORES_Plugin {
     
     public function register_block() {
         if ( ! function_exists('register_block_type') ) return;
+        if ( ! is_admin() ) {
+            register_block_type('mo-reservations/calendar', [
+                'api_version'     => 2,
+                'render_callback' => [$this, 'render_block'],
+                'attributes'      => ['calendar' => ['type'=>'number','default'=>1]],
+            ]);
+            return;
+        }
 
-        wp_register_script(
+		wp_register_script(
             'mores-block-editor',
             MORES_URL . 'assets/js/mores-block.js',
             ['wp-blocks','wp-element','wp-block-editor','wp-components'],
             MORES_VER
         );
-
-        // Předej seznam kalendářů do editoru
+        
         global $wpdb;
         $cal_tbl = $wpdb->prefix . 'mores_calendars';
         $cals = $wpdb->get_results("SELECT id, name FROM $cal_tbl ORDER BY id ASC");
@@ -651,11 +659,6 @@ class MORES_Plugin {
             $time = sanitize_text_field($_POST['time'] ?? '');
             $name = sanitize_text_field($_POST['name'] ?? '');
             $email = sanitize_email($_POST['email'] ?? '');
-            /*
-            if (!$calendar_id || !$service_id || !$date || !$time || !$name || !$email) {
-                wp_send_json_error(['message'=>'Vyplňte prosím požadovaná pole.']);
-            }
-            */
             $name  = '';
             $email = '';
 

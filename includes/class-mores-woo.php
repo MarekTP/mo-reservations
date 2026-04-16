@@ -126,7 +126,7 @@ class MORES_Woo {
             check_ajax_referer('mores_ajax', 'nonce');
             if ( ! class_exists('WooCommerce') || ! function_exists('WC') ) {
 				wp_send_json_error(['message'=>'WooCommerce není aktivní.']);
-				return; // ← toto chybí!
+				return;
 			}
 
 			// Ujisti se, že WC session a cart jsou inicializované
@@ -152,7 +152,6 @@ class MORES_Woo {
             $start_local = $date . ' ' . $time . ':00';
 
             // Create hold
-            //$res = MORES_Availability::create_hold($calendar_id, $service_id, $start_local, $name, $email, ['phone'=>$phone,'address'=>$address], self::HOLD_TTL_MIN);
             $res = MORES_Availability::create_hold($calendar_id, $service_id, $start_local, $name, $email, ['phone'=>$phone,'address'=>$address], self::get_hold_ttl());
             if (empty($res['ok'])) {
                 wp_send_json_error(['message'=>$res['message'] ?? 'Termín je obsazen.']);
@@ -178,46 +177,6 @@ class MORES_Woo {
                 'mores_customer'   => ['name'=>$name,'email'=>$email,'phone'=>$phone,'address'=>$address],
                 'mores_service_name' => $svc_name,
             ];
-            // Zachyť WC notices před i po
-            /*
-			wc_clear_notices();
-
-			$added = WC()->cart->add_to_cart($pid, 1, 0, [], $data);
-
-			$notices = wc_get_notices('error');
-			$notice_texts = array_map(function($n){ return wp_strip_all_tags(is_array($n) ? ($n['notice'] ?? '') : $n); }, $notices);
-			wc_clear_notices();
-
-			$added = WC()->cart->add_to_cart($pid, 1, 0, [], $data);
-
-			if ( $added === false ) {
-				$notices = wc_get_notices('error');
-				$notice_texts = array_map(function($n){
-					return wp_strip_all_tags(is_array($n) ? ($n['notice'] ?? '') : $n);
-				}, $notices);
-				wc_clear_notices();
-
-				// Produkt je already v košíku (sold_individually) → jen přesměruj
-				foreach ( $notice_texts as $msg ) {
-					if ( strpos($msg, 'nemůžete přidat další') !== false
-					  || strpos($msg, 'cannot add another') !== false ) {
-						MORES_Availability::cancel_booking($booking_id); // zruš nový hold, ten starý zůstane
-						$redir = get_option('mores_redirect_after_add', 'checkout');
-						$url = ($redir === 'cart') ? wc_get_cart_url() : wc_get_checkout_url();
-						wp_send_json_success(['redirect' => $url]);
-						return;
-					}
-				}
-
-				// Jiná chyba – zruš hold a vrať chybu
-				MORES_Availability::cancel_booking($booking_id);
-				wp_send_json_error(['message' => implode('; ', $notice_texts) ?: 'Přidání do košíku selhalo.']);
-				return;
-			}
-
-			$redir = get_option('mores_redirect_after_add', 'checkout');
-			$url = ($redir === 'cart') ? wc_get_cart_url() : wc_get_checkout_url();
-			*/
 			// Zkontroluj, zda stejný termín již v košíku není
             foreach ( WC()->cart->get_cart() as $ci ) {
                 if ( isset($ci['mores_start_local']) && $ci['mores_start_local'] === $start_local
@@ -256,10 +215,6 @@ class MORES_Woo {
         self::transition_booking($order_id, true);
     }
 
-    public static function on_cancelled($order_id) {
-        self::transition_booking($order_id, false);
-    }
-
     protected static function transition_booking($order_id, $confirm) {
         $order = wc_get_order($order_id);
         if (!$order) return;
@@ -275,20 +230,7 @@ class MORES_Woo {
             }
         }
     }
-/*
-    }
-        if ($has_cash && !$has_now) {
-            // allow only COD for cash
-            foreach ($gateways as $id => $gw) {
-                if ($id !== 'cod') unset($gateways[$id]);
-            }
-        } elseif ($has_now && !$has_cash) {
-            // disallow COD when paying now
-            if (isset($gateways['cod'])) unset($gateways['cod']);
-        }
-        return $gateways;
-    }
-*/
+
     protected static function update_booking_from_order($booking_id, $order) {
         $name = trim($order->get_formatted_billing_full_name());
         $email = $order->get_billing_email();
@@ -313,21 +255,6 @@ class MORES_Woo {
         $method = isset($arr['payment_method']) ? sanitize_text_field($arr['payment_method']) : '';
         if (function_exists('WC') && WC()->session) { WC()->session->set(self::SESSION_KEY, $method); }
     }
-    /*
-    public static function adjust_cart_prices($cart) {
-        if (is_admin() && !defined('DOING_AJAX')) return;
-        if (!function_exists('WC') || !WC()->session) return;
-        $method = WC()->session->get(self::SESSION_KEY, '');
-        foreach ($cart->get_cart() as $ci_key => $ci) {
-            if (!empty($ci['mores_booking_id']) && !empty($ci['mores_service_id'])) {
-                $mode = ($method === 'cod') ? 'cash' : 'now';
-                $price = self::get_service_price(intval($ci['mores_service_id']), $mode);
-                if ($price <= 0) { $price = self::get_service_price(intval($ci['mores_service_id']), 'cash'); }
-                if ($price > 0) { $ci['data']->set_price($price); }
-            }
-        }
-    }
-    */
     
     public static function adjust_cart_prices($cart) {
 		if (is_admin() && !defined('DOING_AJAX')) return;
@@ -368,15 +295,6 @@ class MORES_Woo {
         return $qty_html . $link;
     }
 	
-	/*
-    public static function empty_cart_message() {
-        $text = get_option('mores_empty_cart_text', 'Váš košík je prázdný. Přejít na rezervaci.');
-        $url  = get_option('mores_empty_cart_url', home_url('/'));
-        echo '<p class="cart-empty woocommerce-info">'
-           . '<a href="' . esc_url($url) . '">' . esc_html($text) . '</a>'
-           . '</p>';
-    }
-    */
     
     public static function empty_cart_message() {
 		$text = get_option('mores_empty_cart_text', 'Váš košík je prázdný. Přejít na rezervaci.');
@@ -397,18 +315,6 @@ class MORES_Woo {
 		}
 		return $visible;
 	}
-
-	/*
-	public static function suppress_empty_cart_upsells() {
-		// Odstraní WC výchozí "Novinka" / upsell sekci na prázdném košíku
-		remove_action('woocommerce_cart_is_empty', 'woocommerce_output_all_notices', 10);
-		add_filter('woocommerce_product_related_posts_relate_by_category', '__return_false');
-		add_filter('woocommerce_product_related_posts_relate_by_tag',      '__return_false');
-		// Odstraní sekci s "náhodným zbožím" (cross-sells / random products)
-		remove_action('woocommerce_cart_collaterals', 'woocommerce_cross_sell_display');
-		remove_action('woocommerce_after_cart',       'woocommerce_output_upsell_products', 10);
-	}
-	*/
 	
 	public static function suppress_empty_cart_upsells() {
 		// Odstraň WC výchozí hlášku – naše empty_cart_message (priorita 5) ji nahradí
@@ -425,7 +331,6 @@ class MORES_Woo {
 		// Nejspolehlivější metoda – obalíme výstup za naší zprávou do output bufferu a zahodíme
 		add_action('woocommerce_cart_is_empty', [__CLASS__, 'start_discard_after_message'], 6);
 		add_action('woocommerce_after_cart',    [__CLASS__, 'end_discard'], 1);
-		//register_shutdown_function([__CLASS__, 'end_discard']);
 	}
 
 	public static function start_discard_after_message() {
